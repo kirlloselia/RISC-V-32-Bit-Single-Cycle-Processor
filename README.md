@@ -281,7 +281,22 @@ The following diagram shows the single-cycle datapath and control unit (from DDC
 
 ```bash
 # Compile all source files and the testbench
-iverilog -o riscv_sim top.v riscv.v datapath.v controller.v alu.v regfile.v dmem.v imem.v extend.v tb_riscv.v
+iverilog -o riscv_sim \
+  sources_1/new/RV32I.v \
+  sources_1/new/DATAPATH.v \
+  sources_1/new/ControlUnit/ControlUnit.v \
+  sources_1/new/ControlUnit/Main_Decoder.v \
+  sources_1/new/ControlUnit/ALU_Decoder.v \
+  sources_1/new/ALUs/ALU.v \
+  sources_1/new/ALUs/ADDER.v \
+  sources_1/new/StateElements/REGFILE.v \
+  sources_1/new/StateElements/IMEM.v \
+  sources_1/new/StateElements/DMEM.v \
+  sources_1/new/StateElements/PC.v \
+  sources_1/new/EXTEND/EXTEND.V \
+  sources_1/new/MUXes/mux2_1.v \
+  sources_1/new/MUXes/mux3_1.v \
+  sim_1/new/RISCV_tb.v
 
 # Run simulation
 vvp riscv_sim
@@ -290,22 +305,42 @@ vvp riscv_sim
 gtkwave dump.vcd
 ```
 
-### File Structure (expected)
+### File Structure
 
 ```
 .
-├── rtl/
-│   ├── riscv.v          # Top-level processor module
-│   ├── datapath.v       # Datapath (PC, RF, ALU, memories, muxes)
-│   ├── controller.v     # Control unit (main decoder + ALU decoder)
-│   ├── alu.v            # Arithmetic Logic Unit
-│   ├── regfile.v        # 32×32 Register File
-│   ├── imem.v           # Instruction Memory
-│   ├── dmem.v           # Data Memory
-│   └── extend.v         # Sign-extension / immediate generator
-├── sim/
-│   ├── tb_riscv.v       # Top-level testbench
-│   └── memfile.hex      # Test program in hex
+├── sim_1/
+│   └── new/
+│       └── RISCV_tb.v                  # Top-level testbench
+├── sources_1/
+│   └── new/
+│       ├── RV32I.v                     # Top-level processor module
+│       ├── DATAPATH.v                  # Datapath (PC, RF, ALU, memories, muxes)
+│       ├── ALUs/
+│       │   ├── ALU.v                   # Arithmetic Logic Unit
+│       │   └── ADDER.v                 # Adder (PC+4 / PC+Imm)
+│       ├── ControlUnit/
+│       │   ├── ControlUnit.v           # Control unit (top-level)
+│       │   ├── Main_Decoder.v          # Main decoder
+│       │   └── ALU_Decoder.v           # ALU decoder
+│       ├── EXTEND/
+│       │   └── EXTEND.V                # Sign-extension / immediate generator
+│       ├── MUXes/
+│       │   ├── mux2_1.v                # 2-to-1 multiplexer
+│       │   └── mux3_1.v                # 3-to-1 multiplexer
+│       ├── StateElements/
+│       │   ├── PC.v                    # Program Counter register
+│       │   ├── REGFILE.v               # 32×32 Register File
+│       │   ├── IMEM.v                  # Instruction Memory
+│       │   ├── DMEM.v                  # Data Memory
+│       │   ├── instructions.mem        # Assembled test program (hex)
+│       │   └── riscvtest.txt           # RISC-V assembly test program
+│       ├── new/
+│       │   ├── RV32I.v                 # (alternate/updated top-level)
+│       │   └── DATAPATH.v              # (alternate/updated datapath)
+│       └── old/
+│           ├── RISCV.v                 # (legacy top-level)
+│           └── DATAPATH.v              # (legacy datapath)
 └── README.md
 ```
 
