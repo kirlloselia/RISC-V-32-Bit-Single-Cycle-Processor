@@ -154,8 +154,6 @@ Generates a 32-bit sign-extended immediate from bits of the instruction word. Th
 
 All formats are **sign-extended** to 32 bits using `Instr[31]`.
 
-> `lui` uses `ImmSrc = 00` with the upper 20 bits placed in `ImmExt[31:12]`.
-
 ### 5. Arithmetic Logic Unit (ALU)
 
 - Takes two 32-bit operands: `SrcA = RD1` and `SrcB = (ALUSrc) ? ImmExt : RD2`.
@@ -172,11 +170,11 @@ All formats are **sign-extended** to 32 bits using `Instr[31]`.
 
 Selects what is written back to the register file:
 
-| `ResultSrc[1:0]` | Source        | Used by                       |
-|------------------|---------------|-------------------------------|
-| `00`             | `ALUResult`   | R-type, I-type ALU, `lui`     |
-| `01`             | `ReadData`    | `lw`                          |
-| `10`             | `PCPlus4`     | `jal`, `jalr`                 |
+| `ResultSrc[1:0]` | Source        | Used by                   |
+|------------------|---------------|---------------------------|
+| `00`             | `ALUResult`   | R-type, I-type ALU        |
+| `01`             | `ReadData`    | `lw`                      |
+| `10`             | `PCPlus4`     | `jal`                     |
 
 ---
 
@@ -193,12 +191,11 @@ The control unit is a **two-level combinational decoder** composed of:
 | `0000011` | `lw`        | 1         | 00       | 1        | 0          | 01          | 0        | 00      | 0      |
 | `0100011` | `sw`        | 0         | 01       | 1        | 1          | —          | 0        | 00      | 0      |
 | `0110011` | R-type      | 1         | —       | 0        | 0          | 00          | 0        | 10      | 0      |
+| `1100011` | `beq`       | 0         | 10       | 0        | 0          | —          | 1        | 01      | 0      |
 | `0010011` | I-type ALU  | 1         | 00       | 1        | 0          | 00          | 0        | 10      | 0      |
-| `1100011` | `beq`/`bne` | 0         | 10       | 0        | 0          | —          | 1        | 01      | 0      |
 | `1101111` | `jal`       | 1         | 11       | —        | 0          | 10          | 0        | —      | 1      |
-| `0110111` | `lui`       | 1         | 00       | 1        | 0          | 00          | 0        | 11      | 0      |
 
-> `—` = don't care. `ResultSrc` is don't care for `sw` and branches because `RegWrite = 0` (no register write occurs). `ALUSrc` and `ALUOp` are don't care for `jal` because the ALU is not used — `PCPlus4` is written directly to `rd` via `ResultSrc = 10`.
+> `—` = don't care. `ResultSrc` is don't care for `sw` and `beq` because `RegWrite = 0` (no register write occurs). `ALUSrc` and `ALUOp` are don't care for `jal` because the ALU is not used — `PCPlus4` is written directly to `rd` via `ResultSrc = 10`.
 
 ### Control Signals
 
@@ -216,24 +213,24 @@ The control unit is a **two-level combinational decoder** composed of:
 **PC source logic:**
 
 ```
-PCSrc = Jump | (Branch & Zero)   // for beq
-     or
-PCSrc = Jump | (Branch & ~Zero)  // for bne (selected by funct3)
+PCSrc = Jump | (Branch & Zero)   // beq: branch taken when ALUResult == 0
 ```
 
 ### ALU Decoder Truth Table
 
-| `ALUOp` | `funct3` | `op[5]` / `funct7[5]` | `ALUControl` | Operation |
-|---------|----------|-----------------------|:------------:|-----------|
-| `00`    | —        | —                     | `000`        | ADD (address calculation for lw/sw) |
-| `01`    | —        | —                     | `001`        | SUB (branch comparison)   |
-| `10`    | `000`    | `op[5]=0`, any        | `000`        | ADD (I-type: addi)        |
-| `10`    | `000`    | `op[5]=1`, `funct7[5]=0` | `000`     | ADD (R-type: add)         |
-| `10`    | `000`    | `op[5]=1`, `funct7[5]=1` | `001`     | SUB (R-type: sub)         |
-| `10`    | `010`    | —                     | `101`        | SLT                       |
-| `10`    | `110`    | —                     | `011`        | OR                        |
-| `10`    | `111`    | —                     | `010`        | AND                       |
-| `11`    | —        | —                     | `000`        | ADD (pass immediate for `lui`) |
+| `ALUOp` | `funct3` | `{op[5], funct7[5]}` | `ALUControl` | Instruction          |
+|---------|----------|----------------------|:------------:|----------------------|
+| `00`    | x        | x                    | `000` (add)  | `lw`, `sw`           |
+| `01`    | x        | x                    | `001` (subtract) | `beq`            |
+| `10`    | `000`    | 00, 01, 10           | `000` (add)  | `addi`, `add`        |
+| `10`    | `000`    | 11                   | `001` (subtract) | `sub`            |
+| `10`    | `010`    | x                    | `101` (set less than) | `slt`       |
+| `10`    | `110`    | x                    | `011` (or)   | `or`                 |
+| `10`    | `111`    | x                    | `010` (and)  | `and`                |
+| `10`    | `100`    | x                    | `100` (xor)  | `xor`                |
+| `10`    | `001`    | x                    | `110` (shift left logical) | `sll`  |
+| `10`    | `101`    | 00, 10               | `111` (shift right logical) | `srl`, `srli` |
+| `10`    | `101`    | 01, 11               | TBD (shift right arithmetic) | `sra`, `srai` |
 
 ---
 
@@ -241,13 +238,17 @@ PCSrc = Jump | (Branch & ~Zero)  // for bne (selected by funct3)
 
 The ALU accepts two 32-bit operands `A` and `B` and a 3-bit `ALUControl` signal.
 
-| `ALUControl` | Operation           | `ALUResult`        |
-|:------------:|---------------------|--------------------|
-| `000`        | ADD                 | A + B              |
-| `001`        | SUB                 | A − B              |
-| `010`        | AND                 | A & B              |
-| `011`        | OR                  | A \| B             |
-| `101`        | SLT (signed)        | (A < B) ? 1 : 0    |
+| `ALUControl` | Operation                | `ALUResult`         |
+|:------------:|--------------------------|---------------------|
+| `000`        | ADD                      | A + B               |
+| `001`        | SUB                      | A − B               |
+| `010`        | AND                      | A & B               |
+| `011`        | OR                       | A \| B              |
+| `100`        | XOR                      | A ^ B               |
+| `101`        | SLT (signed)             | (A < B) ? 1 : 0     |
+| `110`        | SLL (shift left logical) | A << B[4:0]         |
+| `111`        | SRL (shift right logical)| A >> B[4:0]         |
+| TBD          | SRA (shift right arith.) | A >>> B[4:0]        |
 
 **Status output:**
 
