@@ -32,13 +32,17 @@ The processor implements a representative subset of the **RV32I** base integer I
 
 ### R-Type (Register–Register)
 
-| Instruction | Operation           | Description              |
-|-------------|---------------------|--------------------------|
-| `add`       | rd = rs1 + rs2      | Add                      |
-| `sub`       | rd = rs1 − rs2      | Subtract                 |
-| `and`       | rd = rs1 & rs2      | Bitwise AND              |
-| `or`        | rd = rs1 \| rs2     | Bitwise OR               |
-| `slt`       | rd = (rs1 < rs2) ? 1 : 0 | Set less than       |
+| Instruction | Operation                    | Description              |
+|-------------|------------------------------|--------------------------|
+| `add`       | rd = rs1 + rs2               | Add                      |
+| `sub`       | rd = rs1 − rs2               | Subtract                 |
+| `and`       | rd = rs1 & rs2               | Bitwise AND              |
+| `or`        | rd = rs1 \| rs2              | Bitwise OR               |
+| `xor`       | rd = rs1 ^ rs2               | Bitwise XOR              |
+| `slt`       | rd = (rs1 < rs2) ? 1 : 0    | Set less than            |
+| `sll`       | rd = rs1 << rs2[4:0]         | Shift left logical       |
+| `srl`       | rd = rs1 >> rs2[4:0]         | Shift right logical      |
+| `sra`       | rd = rs1 >>> rs2[4:0]        | Shift right arithmetic   |
 
 ### I-Type (Immediate)
 
@@ -49,7 +53,8 @@ The processor implements a representative subset of the **RV32I** base integer I
 | `andi`      | rd = rs1 & imm                 | AND immediate            |
 | `ori`       | rd = rs1 \| imm                | OR immediate             |
 | `slti`      | rd = (rs1 < imm) ? 1 : 0      | Set less than immediate  |
-| `jalr`      | rd = PC+4; PC = rs1 + imm      | Jump and link register   |
+| `srli`      | rd = rs1 >> imm[4:0]           | Shift right logical imm  |
+| `srai`      | rd = rs1 >>> imm[4:0]          | Shift right arith. imm   |
 
 ### S-Type (Store)
 
@@ -59,22 +64,15 @@ The processor implements a representative subset of the **RV32I** base integer I
 
 ### B-Type (Branch)
 
-| Instruction | Operation                              | Description       |
-|-------------|----------------------------------------|-------------------|
-| `beq`       | if (rs1 == rs2) PC = PC + imm         | Branch if equal   |
-| `bne`       | if (rs1 != rs2) PC = PC + imm         | Branch if not equal |
+| Instruction | Operation                               | Description     |
+|-------------|-----------------------------------------|-----------------|
+| `beq`       | if (rs1 == rs2) PC = PC + imm          | Branch if equal |
 
 ### J-Type (Jump)
 
 | Instruction | Operation                    | Description        |
 |-------------|------------------------------|--------------------|
 | `jal`       | rd = PC+4; PC = PC + imm     | Jump and link      |
-
-### U-Type (Upper Immediate)
-
-| Instruction | Operation              | Description              |
-|-------------|------------------------|--------------------------|
-| `lui`       | rd = imm << 12         | Load upper immediate     |
 
 ---
 
@@ -102,9 +100,8 @@ All five stages happen **within a single combinational path** — no pipeline re
 - 32-bit register holding the address of the current instruction.
 - Updated on every clock edge:
   - **Normal flow:** `PC ← PC + 4`
-  - **Branch taken:** `PC ← PC + ImmExt` (B-type)
+  - **Branch taken:** `PC ← PC + ImmExt` (B-type: `beq`)
   - **JAL:** `PC ← PC + ImmExt` (J-type)
-  - **JALR:** `PC ← rs1 + ImmExt`
 
 ```
 PC Mux (PCNext):
@@ -128,6 +125,8 @@ PC Mux (PCNext):
 | `rs1`    | [19:15]   | Source register 1                |
 | `rs2`    | [24:20]   | Source register 2                |
 | `funct7` | [31:25]   | Function (R-type, bit 30 used)   |
+
+The Extend unit reads instruction bits `[31:7]` and selects the correct immediate fields based on `ImmSrc`.
 
 ### 3. Register File
 
@@ -260,53 +259,11 @@ The ALU accepts two 32-bit operands `A` and `B` and a 3-bit `ALUControl` signal.
 
 ## Datapath Diagram
 
-The following ASCII diagram shows the major components and buses of the single-cycle datapath.
+The following diagram shows the single-cycle datapath and control unit (from DDCA, Harris & Harris):
 
-```
-         +-----+
-  Clk -->| PC  |---> PCNext (Mux)
-         +--+--+
-            |  PCPlus4 = PC + 4 --------+
-            |                            |
-            v                            |
-   +------------------+                 |
-   | Instruction Mem  |                 |
-   +--------+---------+                 |
-            |  Instr[31:0]              |
-            |                            |
-    +-------+-------+                   |
-    |               |                   |
-    v               v                   |
-  [op]   +-------------------+         |
-    |    |   Register File   |         |
-    |    |  RD1 ------->  SrcA---+     |
-    |    |  RD2 ------->  SrcB-+ |     |
-    |    +-------------------+ | |     |
-    |                  ^       | |     |
-    |            RegWrite      | |     |
-    |                          | |  ALUSrc=0: RD2
-    |    +----------+          | +---> Mux ---> SrcB
-    |    |  Extend  |<-Instr   |        ^
-    |    +----+-----+  ImmSrc  |        | ALUSrc=1: ImmExt
-    |         |ImmExt ----------+--------+
-    |         |                |
-    v         v                v
-  Main  +----------+       +-------+
- Decoder| ALU Dec. |-----> |  ALU  |---> ALUResult ---> Mux (ResultSrc)
-  (op)  +----------+       +---+---+         |                |
-   |   ALUControl               |  Zero      |         +------v------+
-   |                            |            |         |  Data Mem   |
-   +---ImmSrc, ALUSrc, ----+    +---> PCSrc  |         +------+------+
-       MemWrite, RegWrite  |           |     |                |
-       ResultSrc, Branch,  |           v     |         ReadData
-       Jump                |       PCNext    |                |
-                           |                 +---> ResultMux <+
-                           |                        |
-                           |                        v
-                           +---RegWrite ----------> rd (Register File)
-```
+![RISC-V Single-Cycle Processor Architecture](https://github.com/user-attachments/assets/e11fde14-f8f3-4837-8545-79478d37306f)
 
-> **Note:** The diagram is simplified for clarity. Actual implementations include additional multiplexers and control-path connections for JALR and LUI.
+> **Note:** The Control Unit receives `op[6:0]`, `funct3[14:12]`, `funct7[5]` (bit 30), and the `Zero` flag from the ALU. It drives `PCSrc`, `ResultSrc[1:0]`, `MemWrite`, `ALUControl[2:0]`, `ALUSrc`, `ImmSrc[1:0]`, and `RegWrite` across the datapath.
 
 ---
 
